@@ -3,7 +3,7 @@
 ## Project Overview
 
 Tosan Lock Manager is a logical distributed lock library that provides unified locking mechanisms across multiple backend technologies:
-DBMS (Oracle, DB2, PostgreSQL), Zookeeper, Redis, and Hazelcast.
+DBMS (Oracle, DB2, PostgreSQL), Zookeeper, Redis, Hazelcast, and an in-memory (pure-JVM, non-distributed) option.
 
 - **Java Version**: 17
 - **Build Tool**: Maven
@@ -37,6 +37,11 @@ Each backend technology has its own implementation package under `impl/`:
 - Zookeeper uses Apache Curator recipes
 - Hazelcast uses native distributed lock primitives
 
+**In-Memory Implementation** (`impl/inmemory/`):
+- `InMemoryLockManagementService` backed by `InMemoryLockService`, which keeps one `java.util.concurrent.locks.ReentrantReadWriteLock` per lock handle in a process-local map
+- Not distributed: it only coordinates threads within a single JVM, so it does not require (or support) coordination across multiple application instances
+- Requires no external client - it can be instantiated directly with `new InMemoryLockManagementService()`
+
 ### Lock Name Constraints
 
 For DBMS implementations:
@@ -58,6 +63,7 @@ All DBMS lock operations require active Spring transactions with `Propagation.RE
 ### Service Instantiation
 - **DBMS**: Pass `EntityManager` to constructor → factory auto-detects database type
 - **Redis/Zookeeper/Hazelcast**: Each has specific configuration requirements for their respective clients
+- **In-Memory**: No configuration or external client needed - `new InMemoryLockManagementService()`
 
 ### Lock Release Behavior
 The `releaseOnCommit` parameter controls when locks are released:
