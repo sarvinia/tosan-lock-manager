@@ -38,7 +38,7 @@ Each backend technology has its own implementation package under `impl/`:
 - Hazelcast uses native distributed lock primitives
 
 **In-Memory Implementation** (`impl/inmemory/`):
-- `InMemoryLockManagementService` backed by `InMemoryLockService`, which keeps one `java.util.concurrent.locks.ReentrantReadWriteLock` per lock handle in a process-local map
+- `MemoryLockManagementService` backed by `MemoryLockService`, which keeps one `java.util.concurrent.locks.ReentrantReadWriteLock` per lock handle in a process-local map
 - Not distributed: it only coordinates threads within a single JVM, so it does not require (or support) coordination across multiple application instances
 - Requires no external client - it can be instantiated directly with `new InMemoryLockManagementService()`
 

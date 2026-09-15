@@ -1,4 +1,4 @@
-package com.tosan.tools.lockmanager.impl.inmemory;
+package com.tosan.tools.lockmanager.impl.memory;
 
 import com.tosan.tools.lockmanager.exception.LockManagerTimeoutException;
 import org.apache.commons.lang3.StringUtils;
@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -16,13 +17,14 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * So it is meant for single-instance deployments only.
  * Because the lock's lifetime is tied to this JVM's heap, if this JVM dies, every lock it held disappears with it.
  */
-public class InMemoryLockService {
+public class MemoryLockService {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(InMemoryLockService.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(MemoryLockService.class);
     private static final int DEFAULT_READ_LOCK_TIMEOUT = 60;
     private static final int DEFAULT_WRITE_LOCK_TIMEOUT = 7200;
 
     private final ConcurrentHashMap<String, ReentrantReadWriteLock> lockRegistry = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ReentrantLock> convertLockRegistry = new ConcurrentHashMap<>();
 
     public void requestReadLock(String lockNameType, String lockName, Integer lockTimeout, boolean releaseOnCommit) {
         int timeout = lockTimeout != null ? lockTimeout : DEFAULT_READ_LOCK_TIMEOUT;
@@ -68,9 +70,17 @@ public class InMemoryLockService {
         if (lock == null || !lock.isWriteLockedByCurrentThread()) {
             throw new LockManagerTimeoutException("Thread does not own write lock to convert.");
         }
-        lock.readLock().lock();
-        lock.writeLock().unlock();
-        LOGGER.debug("Converted to read lock with handle {}", lockHandle);
+        ReentrantLock convertLock = getConvertLockInstance(lockHandle);
+        if (!convertLock.tryLock()) {
+            throw new LockManagerTimeoutException("Another thread is converting this lock!");
+        }
+        try {
+            requestReadLock(lockNameType, lockName, lockTimeout, false);
+            lock.writeLock().unlock();
+            LOGGER.debug("Converted to read lock with handle {}", lockHandle);
+        } finally {
+            convertLock.unlock();
+        }
     }
 
     /**
@@ -85,9 +95,17 @@ public class InMemoryLockService {
         if (lock == null || lock.getReadHoldCount() == 0) {
             throw new LockManagerTimeoutException("Thread does not own any read lock to convert.");
         }
-        lock.readLock().unlock();
-        requestWriteLock(lockNameType, lockName, lockTimeout, false);
-        LOGGER.debug("Converted to write lock with handle {}", lockHandle);
+        ReentrantLock convertLock = getConvertLockInstance(lockHandle);
+        if (!convertLock.tryLock()) {
+            throw new LockManagerTimeoutException("Another thread is converting this lock!");
+        }
+        try {
+            lock.readLock().unlock();
+            requestWriteLock(lockNameType, lockName, lockTimeout, false);
+            LOGGER.debug("Converted to write lock with handle {}", lockHandle);
+        } finally {
+            convertLock.unlock();
+        }
     }
 
     public void unLock(String lockNameType, String lockName) {
@@ -112,6 +130,10 @@ public class InMemoryLockService {
 
     private ReentrantReadWriteLock getLockInstance(String lockHandle) {
         return lockRegistry.computeIfAbsent(lockHandle, handle -> new ReentrantReadWriteLock());
+    }
+
+    private ReentrantLock getConvertLockInstance(String lockHandle) {
+        return convertLockRegistry.computeIfAbsent(lockHandle, handle -> new ReentrantLock());
     }
 
     private String getLockHandle(String lockNameType, String lockName) {
