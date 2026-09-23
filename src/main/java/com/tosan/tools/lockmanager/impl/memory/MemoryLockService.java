@@ -1,5 +1,6 @@
 package com.tosan.tools.lockmanager.impl.memory;
 
+import com.tosan.tools.lockmanager.exception.LockManagerRunTimeException;
 import com.tosan.tools.lockmanager.exception.LockManagerTimeoutException;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -27,6 +28,8 @@ public class MemoryLockService {
     private final ConcurrentHashMap<String, ReentrantLock> convertLockRegistry = new ConcurrentHashMap<>();
 
     public void requestReadLock(String lockNameType, String lockName, Integer lockTimeout, boolean releaseOnCommit) {
+        if (releaseOnCommit)
+            LOGGER.warn("releaseOnCommit is not supported by MemoryLockService and will be ignored.");
         int timeout = lockTimeout != null ? lockTimeout : DEFAULT_READ_LOCK_TIMEOUT;
         String lockHandle = getLockHandle(lockNameType, lockName);
         LOGGER.debug("Requesting read lock with handle {}", lockHandle);
@@ -43,6 +46,8 @@ public class MemoryLockService {
     }
 
     public void requestWriteLock(String lockNameType, String lockName, Integer lockTimeout, boolean releaseOnCommit) {
+        if (releaseOnCommit)
+            LOGGER.warn("releaseOnCommit is not supported by MemoryLockService and will be ignored.");
         int timeout = lockTimeout != null ? lockTimeout : DEFAULT_WRITE_LOCK_TIMEOUT;
         String lockHandle = getLockHandle(lockNameType, lockName);
         LOGGER.debug("Requesting write lock with handle {}", lockHandle);
@@ -68,19 +73,11 @@ public class MemoryLockService {
         LOGGER.debug("Requesting convert to read lock with handle {}", lockHandle);
         ReentrantReadWriteLock lock = lockRegistry.get(lockHandle);
         if (lock == null || !lock.isWriteLockedByCurrentThread()) {
-            throw new LockManagerTimeoutException("Thread does not own write lock to convert.");
+            throw new LockManagerRunTimeException("Thread does not own write lock to convert.");
         }
-        ReentrantLock convertLock = getConvertLockInstance(lockHandle);
-        if (!convertLock.tryLock()) {
-            throw new LockManagerTimeoutException("Another thread is converting this lock!");
-        }
-        try {
-            requestReadLock(lockNameType, lockName, lockTimeout, false);
-            lock.writeLock().unlock();
-            LOGGER.debug("Converted to read lock with handle {}", lockHandle);
-        } finally {
-            convertLock.unlock();
-        }
+        requestReadLock(lockNameType, lockName, lockTimeout, false);
+        lock.writeLock().unlock();
+        LOGGER.debug("Converted to read lock with handle {}", lockHandle);
     }
 
     /**
@@ -93,7 +90,7 @@ public class MemoryLockService {
         LOGGER.debug("Requesting convert to write lock with handle {}", lockHandle);
         ReentrantReadWriteLock lock = lockRegistry.get(lockHandle);
         if (lock == null || lock.getReadHoldCount() == 0) {
-            throw new LockManagerTimeoutException("Thread does not own any read lock to convert.");
+            throw new LockManagerRunTimeException("Thread does not own any read lock to convert.");
         }
         ReentrantLock convertLock = getConvertLockInstance(lockHandle);
         if (!convertLock.tryLock()) {
@@ -101,6 +98,12 @@ public class MemoryLockService {
         }
         try {
             lock.readLock().unlock();
+            try {
+                requestWriteLock(lockNameType, lockName, lockTimeout, false);
+            } catch (LockManagerTimeoutException e) {
+                requestReadLock(lockNameType, lockName, lockTimeout, false);
+                throw e;
+            }
             requestWriteLock(lockNameType, lockName, lockTimeout, false);
             LOGGER.debug("Converted to write lock with handle {}", lockHandle);
         } finally {
