@@ -20,7 +20,7 @@ public class MemoryLockManagementService implements LockManagementService {
         try {
             memoryLockService.requestReadLock(lockNameType, null, null, releaseOnCommit);
         } catch (LockManagerTimeoutException e) {
-            LOGGER.warn("Write lock '{}' held by another thread: " + e.getMessage(), lockNameType);
+            LOGGER.warn("Write lock '{}' held by another thread: {}", lockNameType, e.getMessage());
             throw e;
         }
     }
@@ -30,7 +30,7 @@ public class MemoryLockManagementService implements LockManagementService {
         try {
             memoryLockService.requestReadLock(lockNameType, lockName, null, releaseOnCommit);
         } catch (LockManagerTimeoutException e) {
-            LOGGER.warn("Write lock '{}' held by another thread: " + e.getMessage(), lockName);
+            LOGGER.warn("Write lock '{}' held by another thread: {}", lockName, e.getMessage());
             throw e;
         }
     }
@@ -40,7 +40,7 @@ public class MemoryLockManagementService implements LockManagementService {
         try {
             memoryLockService.requestReadLock(lockNameType, lockName, lockTimeout, releaseOnCommit);
         } catch (LockManagerTimeoutException e) {
-            LOGGER.warn("Write lock '{}' held by another thread: " + e.getMessage(), lockName);
+            LOGGER.warn("Write lock '{}' held by another thread: {}", lockName, e.getMessage());
             throw e;
         }
     }
@@ -50,7 +50,7 @@ public class MemoryLockManagementService implements LockManagementService {
         try {
             memoryLockService.requestWriteLock(lockNameType, null, null, releaseOnCommit);
         } catch (LockManagerTimeoutException e) {
-            LOGGER.warn("Write or read lock '{}' held by another thread: " + e.getMessage(), lockNameType);
+            LOGGER.warn("Write or read lock '{}' held by another thread: {}", lockNameType, e.getMessage());
             throw e;
         }
     }
@@ -60,7 +60,7 @@ public class MemoryLockManagementService implements LockManagementService {
         try {
             memoryLockService.requestWriteLock(lockNameType, lockName, null, releaseOnCommit);
         } catch (LockManagerTimeoutException e) {
-            LOGGER.warn("Write or read lock '{}' held by another thread: " + e.getMessage(), lockName);
+            LOGGER.warn("Write or read lock '{}' held by another thread: {}", lockName, e.getMessage());
             throw e;
         }
     }
@@ -70,7 +70,7 @@ public class MemoryLockManagementService implements LockManagementService {
         try {
             memoryLockService.requestWriteLock(lockNameType, lockName, lockTimeout, releaseOnCommit);
         } catch (LockManagerTimeoutException e) {
-            LOGGER.warn("Write or read lock '{}' held by another thread: " + e.getMessage(), lockName);
+            LOGGER.warn("Write or read lock '{}' held by another thread: {}", lockName, e.getMessage());
             throw e;
         }
     }
@@ -113,7 +113,7 @@ public class MemoryLockManagementService implements LockManagementService {
         try {
             memoryLockService.convertToReadLock(lockNameType, lockName, lockTimeout);
         } catch (LockManagerTimeoutException e) {
-            LOGGER.warn("Write lock '{}' held by another thread: " + e.getMessage(), lockName);
+            LOGGER.warn("Write lock '{}' held by another thread: {}", lockName, e.getMessage());
             throw e;
         }
     }
@@ -146,7 +146,7 @@ public class MemoryLockManagementService implements LockManagementService {
         try {
             memoryLockService.convertToWriteLock(lockNameType, lockName, lockTimeout);
         } catch (LockManagerTimeoutException e) {
-            LOGGER.warn("Write or read lock '{}' held by another thread: " + e.getMessage(), lockName);
+            LOGGER.warn("Write or read lock '{}' held by another thread: {}", lockName, e.getMessage());
             throw e;
         }
     }
