@@ -126,7 +126,10 @@ public class MemoryLockService {
             throw new LockManagerTimeoutException("Another thread is converting this lock!");
         }
         try {
-            lock.readLock().unlock();
+            int readHolds = lock.getReadHoldCount();
+            for (int i = 0; i < readHolds; i++) {
+                lock.readLock().unlock();
+            }
             try {
                 requestWriteLock(lockNameType, lockName, lockTimeout, false);
             } catch (LockManagerTimeoutException e) {
