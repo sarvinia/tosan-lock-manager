@@ -22,11 +22,11 @@ public class MemoryLockService {
     private static final Logger LOGGER = LoggerFactory.getLogger(MemoryLockService.class);
     private static final int DEFAULT_READ_LOCK_TIMEOUT = 60;
     private static final int DEFAULT_WRITE_LOCK_TIMEOUT = 7200;
-    private Long lockTimeToLive = 600l;
     private static final TimeUnit LOCK_TTL_UNIT = TimeUnit.SECONDS;
     private final ConcurrentHashMap<String, LockWrapper> lockRegistry = new ConcurrentHashMap<>();
+    private long lockTimeToLive = 600L;
 
-    public void setLockTtlUnit(long lockTimeToLive) {
+    public void setLockTimeToLive(long lockTimeToLive) {
         this.lockTimeToLive = lockTimeToLive;
     }
 
@@ -36,9 +36,10 @@ public class MemoryLockService {
         int timeout = lockTimeout != null ? lockTimeout : DEFAULT_READ_LOCK_TIMEOUT;
         String lockHandle = getLockHandle(lockNameType, lockName);
         LOGGER.debug("Requesting read lock with handle {}", lockHandle);
-        ReentrantReadWriteLock lock = getLockWrapper(lockHandle).getLock();
+        LockWrapper wrapper = acquireWrapper(lockHandle);
+        boolean granted = false;
         try {
-            boolean granted = lock.readLock().tryLock(timeout, TimeUnit.SECONDS);
+            granted = wrapper.getLock().readLock().tryLock(timeout, TimeUnit.SECONDS);
             if (!granted) {
                 throw new LockManagerTimeoutException("Timeout error occurred in 'IN_MEMORY_LOCK' request.");
             }
@@ -46,6 +47,10 @@ public class MemoryLockService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new LockManagerTimeoutException("Timeout error occurred in 'IN_MEMORY_LOCK' request.");
+        } finally {
+            if (!granted) {
+                releaseWrapper(lockHandle, wrapper);
+            }
         }
     }
 
@@ -55,9 +60,10 @@ public class MemoryLockService {
         int timeout = lockTimeout != null ? lockTimeout : DEFAULT_WRITE_LOCK_TIMEOUT;
         String lockHandle = getLockHandle(lockNameType, lockName);
         LOGGER.debug("Requesting write lock with handle {}", lockHandle);
-        ReentrantReadWriteLock lock = getLockWrapper(lockHandle).getLock();
+        LockWrapper wrapper = acquireWrapper(lockHandle);
+        boolean granted = false;
         try {
-            boolean granted = lock.writeLock().tryLock(timeout, TimeUnit.SECONDS);
+            granted = wrapper.getLock().writeLock().tryLock(timeout, TimeUnit.SECONDS);
             if (!granted) {
                 throw new LockManagerTimeoutException("Timeout error occurred in 'IN_MEMORY_LOCK' request.");
             }
@@ -65,6 +71,10 @@ public class MemoryLockService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new LockManagerTimeoutException("Timeout error occurred in 'IN_MEMORY_LOCK' request.");
+        } finally {
+            if (!granted) {
+                releaseWrapper(lockHandle, wrapper);
+            }
         }
     }
 
@@ -78,7 +88,7 @@ public class MemoryLockService {
         LOGGER.debug("Requesting convert to read lock with handle {}", lockHandle);
         LockWrapper wrapper = lockRegistry.get(lockHandle);
         if (wrapper == null || wrapper.isExpired())
-            throw new LockManagerRunTimeException("Thread does not own write lock to convert.");
+            throw new LockManagerRunTimeException("Conversion failed because lock was not found or is expired.");
         ReentrantReadWriteLock lock = wrapper.getLock();
         if (!lock.isWriteLockedByCurrentThread()) {
             throw new LockManagerRunTimeException("Thread does not own write lock to convert.");
@@ -106,7 +116,7 @@ public class MemoryLockService {
         LOGGER.debug("Requesting convert to write lock with handle {}", lockHandle);
         LockWrapper wrapper = lockRegistry.get(lockHandle);
         if (wrapper == null || wrapper.isExpired()) {
-            throw new LockManagerRunTimeException("Thread does not own any read lock to convert.");
+            throw new LockManagerRunTimeException("Conversion failed because lock was not found or is expired.");
         }
         ReentrantReadWriteLock lock = wrapper.getLock();
         if (lock.getReadHoldCount() == 0) {
@@ -125,6 +135,7 @@ public class MemoryLockService {
             }
             LOGGER.debug("Converted to write lock with handle {}", lockHandle);
         } finally {
+            releaseWrapper(lockHandle, wrapper);
             wrapper.getConversionLock().unlock();
         }
     }
@@ -141,11 +152,13 @@ public class MemoryLockService {
         try {
             if (lock.isWriteLockedByCurrentThread()) {
                 lock.writeLock().unlock();
+                releaseWrapper(lockHandle, wrapper);
                 LOGGER.debug("Released write lock with handle {}", lockHandle);
                 return;
             }
             if (lock.getReadHoldCount() > 0) {
                 lock.readLock().unlock();
+                releaseWrapper(lockHandle, wrapper);
                 LOGGER.debug("Released read lock with handle {}", lockHandle);
                 return;
             }
@@ -155,19 +168,32 @@ public class MemoryLockService {
         }
     }
 
-    private LockWrapper getLockWrapper(String lockHandle) {
+    private LockWrapper acquireWrapper(String lockHandle) {
         return lockRegistry.compute(lockHandle, (handle, existingWrapper) -> {
                     if (existingWrapper == null) {
                         LOGGER.debug("Creating new lock wrapper for handle {}", handle);
-                        return new LockWrapper(lockTimeToLive, LOCK_TTL_UNIT);
-                    }
-                    if (existingWrapper.isExpired()) {
+                        existingWrapper = new LockWrapper(lockTimeToLive, LOCK_TTL_UNIT);
+                    } else if (existingWrapper.isExpired()) {
                         LOGGER.debug("Lock wrapper for handle {} has expired. Creating a new wrapper.", handle);
-                        return new LockWrapper(lockTimeToLive, LOCK_TTL_UNIT);
+                        existingWrapper = new LockWrapper(lockTimeToLive, LOCK_TTL_UNIT);
                     }
+                    existingWrapper.incrementUsers();
                     return existingWrapper;
                 }
         );
+    }
+
+    private void releaseWrapper(String lockHandle, LockWrapper wrapper) {
+        lockRegistry.computeIfPresent(lockHandle, (handle, current) -> {
+            if (current != wrapper) {
+                return current;
+            }
+            if (current.decrementUsersAndIsUnused()) {
+                LOGGER.debug("Removing unused lock wrapper for handle {}", handle);
+                return null;
+            }
+            return current;
+        });
     }
 
     private String getLockHandle(String lockNameType, String lockName) {
