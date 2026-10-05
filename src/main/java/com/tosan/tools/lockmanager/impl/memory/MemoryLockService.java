@@ -133,12 +133,17 @@ public class MemoryLockService {
             try {
                 requestWriteLock(lockNameType, lockName, lockTimeout, false);
             } catch (LockManagerTimeoutException e) {
-                requestReadLock(lockNameType, lockName, lockTimeout, false);
+                for (int i = 0; i < readHolds; i++) {
+                    requestReadLock(lockNameType, lockName, lockTimeout, false);
+                }
                 throw e;
+            } finally {
+                for (int i = 0; i < readHolds; i++) {
+                    releaseWrapper(lockHandle, wrapper);
+                }
             }
             LOGGER.debug("Converted to write lock with handle {}", lockHandle);
         } finally {
-            releaseWrapper(lockHandle, wrapper);
             wrapper.getConversionLock().unlock();
         }
     }
